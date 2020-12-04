@@ -7,13 +7,14 @@
 #include <netinet/in.h>
 #include <sys/select.h>
 #include <sys/time.h>
+#include <time.h>
 
 #define RCVSIZE 1024
 
-int serverHandShake(int server_desc_udp, int port){
+int serverHandShake(int ctrl_desc, int port){
     char Tx[RCVSIZE]="SYN-ACK";
     char buffer[10];
-    sprintf(buffer, "%d", port);
+    sprintf(buffer, "%d", port); // mettre plusieur numero de port pour plusieur client
     strcat(Tx, buffer);
     char Rx[RCVSIZE]="";
     struct sockaddr_in adresse_client, adresse_server;
@@ -31,13 +32,13 @@ int serverHandShake(int server_desc_udp, int port){
     }
 
 
-    recvfrom(server_desc_udp, Rx, RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
+    recvfrom(ctrl_desc, Rx, RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
     printf("Message received\n");
     if(strcmp(Rx,"SYN")==0){
         printf("Sending SYN-ACK\n");
-            sendto(server_desc_udp,Tx, strlen(Tx), 0, (struct sockaddr*) &adresse_client, alen);
+            sendto(ctrl_desc,Tx, strlen(Tx), 0, (struct sockaddr*) &adresse_client, alen);
         memset(Rx,0, RCVSIZE);
-        recvfrom(server_desc_udp, Rx, RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
+        recvfrom(ctrl_desc, Rx, RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
         if(strcmp(Rx,"ACK")!=0){
             printf("NO ACK RECEIVED FROM CLIENT, msg=%s", Rx);
         }else{
@@ -49,24 +50,6 @@ int serverHandShake(int server_desc_udp, int port){
     }
 }
 
-
-int gestionClientUDP(int client_desc_udp, char buffer[RCVSIZE]){
-
-  struct sockaddr_in adresse_client;
-  socklen_t alen = sizeof(adresse_client);
-  int msgSize = recvfrom(client_desc_udp,buffer,RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
-
-  while (msgSize > 0) {
-    printf("BUFFER TO SEND: %s",buffer);
-    sendto(client_desc_udp,buffer,msgSize, 0, (struct sockaddr*) &adresse_client, alen);
-    memset(buffer,0,RCVSIZE);
-    msgSize = recvfrom(client_desc_udp,buffer,RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
-  }
-  close(client_desc_udp);
-  //printf("Closing the UDP child\n");
-  exit(0);
-  
-}
 
 void generateSequenceNumber(char *buffer, int number){
   char string[6];
@@ -107,6 +90,7 @@ int sendingFile(int client_desc){
   char buffer[RCVSIZE];
   FILE* file = NULL;
   int numSeq;
+  struct timeval start, current, end;
 
   msgSize = recvfrom(client_desc,buffer,RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
   buffer[msgSize-1]='\0';
@@ -121,26 +105,60 @@ int sendingFile(int client_desc){
 
   if(file != 0 && file!=NULL)
   {
-    numSeq=0;
+    numSeq=1;
     int byteToSend = 1;
     char stringSeq[RCVSIZE];
     int size=0;
+    byteToSend= fread(buffer, 1, RCVSIZE, file);
+    fd_set sockTab;
+    struct timeval timer;
+    gettimeofday(&start, NULL);
     while (byteToSend > 0) 
     {
-      byteToSend= fread(buffer, 1, RCVSIZE, file);
+      //Sending paquet
       generateSequenceNumber(stringSeq, numSeq);
       printf("numSeq = %s\n", stringSeq);
       memcpy(stringSeq+6, buffer, byteToSend);
       //printf("Data to send: %s \n", stringSeq);
       sendto(client_desc, stringSeq, byteToSend+6, 0, (struct sockaddr*) &adresse_client, alen);
-      fwrite(stringSeq+6, byteToSend, 1, filecopy);
+      gettimeofday(&current, NULL);
+
+      //select
+      FD_ZERO(&sockTab);
+      FD_SET(client_desc, &sockTab);
+      // TO DO utilisation de pointeur ?
+      timer.tv_sec=0;
+      timer.tv_usec=7000; // Mettre un RTO glissant selon la valeur du RTT precedant
+
+      if(select(client_desc+1, &sockTab,NULL, NULL, &timer)==-1){
+        perror("select is ravaged\n");
+        return -1;
+      }
+      if(FD_ISSET(client_desc, &sockTab)){
+        // Receiving paquet
+      gettimeofday(&end, NULL);
+      printf("rtt = %ld\n", (end.tv_sec - current.tv_sec)*1000000 + (end.tv_usec - current.tv_usec));
+      memset(buffer, 0, RCVSIZE);
+      msgSize = recvfrom(client_desc,buffer,9, 0, (struct sockaddr*) &adresse_client, &alen);
+      
+      printf("The message received is : %s\n",buffer);      
       memset(buffer, 0, RCVSIZE);
       memset(stringSeq, 0, RCVSIZE);
-      //msgSize = recvfrom(client_desc,buffer,RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
       numSeq++;
+      byteToSend= fread(buffer, 1, RCVSIZE, file);
+      }else{
+        gettimeofday(&end, NULL);
+        printf("retransmitting at %ld\n", (end.tv_sec - current.tv_sec)*1000000 + (end.tv_usec - current.tv_usec));
+      }
+
     }
+    gettimeofday(&end, NULL);
+    printf("total time = %ld\n", (end.tv_sec - start.tv_sec)*1000000 + (end.tv_usec - start.tv_usec) );
     printf("The number of block read is %d\n", numSeq);
     printf("Total size of message is %d\n", size);
+
+    sendto(client_desc, "FIN", 3, 0, (struct sockaddr*) &adresse_client, alen);
+
     close(client_desc);
     exit(0);
   }else{
@@ -165,10 +183,10 @@ int main (int argc, char *argv[]) {
   char buffer[RCVSIZE]="";
 
   //create socket
-  int server_desc_udp = socket(AF_INET, SOCK_DGRAM, 0);
+  int ctrl_desc = socket(AF_INET, SOCK_DGRAM, 0);
 
   //Handle error
-  if(server_desc_udp <0){
+  if(ctrl_desc <0){
     perror("Cannot create udp socket\n");
     return -1;
   }
@@ -176,41 +194,41 @@ int main (int argc, char *argv[]) {
   fd_set sockTab;
 
   //SERVEUR UDP
-  setsockopt(server_desc_udp, SOL_SOCKET, SO_REUSEADDR, &valid, sizeof(int));
+  setsockopt(ctrl_desc, SOL_SOCKET, SO_REUSEADDR, &valid, sizeof(int));
 
   adresse_udp.sin_family= AF_INET;
   adresse_udp.sin_port= htons(port);
   adresse_udp.sin_addr.s_addr= htonl(INADDR_ANY);
 
   //initialize socket
-  if (bind(server_desc_udp, (struct sockaddr*) &adresse_udp, sizeof(adresse_udp)) == -1) {
+  if (bind(ctrl_desc, (struct sockaddr*) &adresse_udp, sizeof(adresse_udp)) == -1) {
     perror("Bind failed\n");
-    close(server_desc_udp);
+    close(ctrl_desc);
     return -1;
   }
 
-  int client_desc_udp = serverHandShake(server_desc_udp, port+1);
+  int data_desc = serverHandShake(ctrl_desc, port+1); //generer un num de port aleatoire
 
   
   while (1) {
     FD_ZERO(&sockTab);
-    FD_SET(server_desc_udp, &sockTab);
-    FD_SET(client_desc_udp, &sockTab);
+    FD_SET(ctrl_desc, &sockTab);
+    FD_SET(data_desc, &sockTab);
     
-    if(select(server_desc_udp+client_desc_udp+1, &sockTab,NULL, NULL, NULL)==-1){
+    if(select(ctrl_desc+data_desc+1, &sockTab,NULL, NULL, NULL)==-1){
       perror("select is ravaged\n");
       return -1;
     }
 
-    if(FD_ISSET(client_desc_udp, &sockTab)){
-      sendingFile(client_desc_udp);
+    if(FD_ISSET(data_desc, &sockTab)){
+      sendingFile(data_desc);
     }
 
-    if(FD_ISSET(server_desc_udp, &sockTab)){
+    if(FD_ISSET(ctrl_desc, &sockTab)){
       printf("Control msg received \n");
     }
  
   }
-close(server_desc_udp);
+close(ctrl_desc);
 return 0;
 }
