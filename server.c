@@ -13,6 +13,34 @@
 #define ARRSIZE 256
 #define ALPHA	0.8
 
+void removeInt(int array[], int index);
+void removeCharArray(char* array[], int index);
+int serverHandShake(int ctrl_desc, int port);
+void generateSequenceNumber(char *buffer, int number);
+void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char* forwarded[RCVSIZE], int expected[], int retransmit[]);
+void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char* forwarded[RCVSIZE], int expected[], int retransmit[]);
+
+
+
+
+void removeInt(int array[], int index){
+	for (int i=index;i<ARRSIZE-1;i++) {
+		array[i] = array[i+1];
+	}
+	array[ARRSIZE-1]=-1;
+}
+// OPTMIMISATION : PARSE ONLY RELEVANT ARRAY ENTRIES
+void removeCharArray(char* array[], int index){
+	for (int i=index;i<ARRSIZE-1;i++) {
+		for (int j=0;j<RCVSIZE-1;j++) {
+			array[i][j] = array[i+1][j];
+		}
+	}
+	for (int k=0;k<RCVSIZE-1;k++) {
+		array[ARRSIZE-1][k]='\0';
+	}
+}
+
 int serverHandShake(int ctrl_desc, int port){
 		char Tx[RCVSIZE]="SYN-ACK";
 		char buffer[10];
@@ -83,7 +111,8 @@ void generateSequenceNumber(char *buffer, int number){
 	strcat(buffer, string);	
 }
 
-void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char* forwarded, int* expected, int* retransmit){
+
+void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char* forwarded[RCVSIZE], int expected[], int retransmit[]){
 	int received_size;
 	int duplicate_sequence;
 	char message[RCVSIZE];
@@ -102,11 +131,11 @@ void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT
 		filecopy = fopen("testCopy", "a");
 	}
 	for (int i=0;i<cwnd;i++) {
-		if (i<sizeof(retransmit)) {
+		if (i<sizeof(&retransmit)) {
 			duplicate_sequence = retransmit[i];
 			generateSequenceNumber(message, duplicate_sequence);
 			printf("duplicate_sequence = %s\n", message);
-			memcpy(message+6, forwarded[i], sizeof(forwarded[i]));
+			memcpy(message+6, forwarded[i], sizeof(&forwarded[i]));
 			sendto(client_desc, message, RCVSIZE+6, 0, (struct sockaddr*) &adresse_client, alen);
 			expected[i] = duplicate_sequence;
 			memset(buffer, 0, RCVSIZE);
@@ -130,7 +159,7 @@ void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT
 	return;
 }
 
-void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char* forwarded, int* expected, int* retransmit){
+void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char* forwarded[RCVSIZE], int expected[], int retransmit[]){
 	struct timeval timer, start, end;
 	timer.tv_sec=0;
 	timer.tv_usec=SRTT;
@@ -152,42 +181,32 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 		int received_size = recvfrom(client_desc, buffer, 9, 0, (struct sockaddr*) &adresse_client, &alen);
 		printf("Answer received : %s\n", buffer);
 		if (memcmp(buffer, "ACK", 3) == 0) {
+			
 			// SLOW STARTCWND INCREMENTATION
 			if (mode==0) {
 				cwnd++;
 			}
 			// REMOVE SEQUENCE NUMBER FROM EXPECTED
-			for (int i=0;i<sizeof(expected);i++) {
-				if (memcmp(buffer+3, expected[i], 6) == 0) {
-					removeChar(forwarded, i); 
+			for (int i=0;i<sizeof(&expected);i++) {
+				char current_ack[6];
+				sscanf(current_ack, "%d", &expected[i]);
+				if (memcmp(buffer+3, current_ack, 6) == 0) {
 					removeInt(expected, i);
+					removeCharArray(forwarded, i);
 					break;
 				}
 			}
 		}
 	}
 	// BUILDING RETRANSMIT ARRAY
-	for (int i=0;i<sizeof(expected);i++) {
+	for (int i=0;i<sizeof(&expected);i++) {
 		retransmit[i]=expected[i];
 	}
 	// CONGESTION AVOIDANCE CWND INCREMENTATION
 	if (mode==1) {
 		cwnd++;
 	}
-	transmit(client_desc, message_size, sequence, RTT, SRTT, mode, cwnd, forwarded, expected, retransmit); // -------------------------------------------------------
-}
-
-void removeInt(int* array, int index){
-	for (int i=index;i<sizeof(&array)-1;i++) {
-		array[i] = array[i+1];
-	}
-	array[sizeof(&array)]=NULL;
-}
-void removeChar(char* array, int index){
-	for (int i=index;i<sizeof(&array)-1;i++) {
-		array[i] = array[i+1];
-	}
-	array[sizeof(&array)]=NULL;
+	transmit(client_desc, message_size, sequence, RTT, SRTT, mode, cwnd, forwarded, expected, retransmit);
 }
 
 int main (int argc, char *argv[]) {
