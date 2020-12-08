@@ -14,12 +14,11 @@
 #define ALPHA	0.8
 
 void removeInt(int array[], int index);
-void removeCharArray(char* array[], int index);
+void removeCharArray(char array[ARRSIZE][RCVSIZE], int index);
 int serverHandShake(int ctrl_desc, int port);
 void generateSequenceNumber(char *buffer, int number);
-void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char* forwarded[RCVSIZE], int expected[], int retransmit[]);
-void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char* forwarded[RCVSIZE], int expected[], int retransmit[]);
-
+void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char forwarded[ARRSIZE][RCVSIZE], int expected[], int retransmit[]);
+void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char forwarded[ARRSIZE][RCVSIZE], int expected[], int retransmit[]);
 
 
 
@@ -30,7 +29,7 @@ void removeInt(int array[], int index){
 	array[ARRSIZE-1]=-1;
 }
 // OPTMIMISATION : PARSE ONLY RELEVANT ARRAY ENTRIES
-void removeCharArray(char* array[], int index){
+void removeCharArray(char array[ARRSIZE][RCVSIZE], int index){
 	for (int i=index;i<ARRSIZE-1;i++) {
 		for (int j=0;j<RCVSIZE-1;j++) {
 			array[i][j] = array[i+1][j];
@@ -112,7 +111,7 @@ void generateSequenceNumber(char *buffer, int number){
 }
 
 
-void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char* forwarded[RCVSIZE], int expected[], int retransmit[]){
+void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char forwarded[ARRSIZE][RCVSIZE], int expected[], int retransmit[]){
 	int received_size;
 	int duplicate_sequence;
 	char message[RCVSIZE];
@@ -159,7 +158,7 @@ void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT
 	return;
 }
 
-void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char* forwarded[RCVSIZE], int expected[], int retransmit[]){
+void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char forwarded[ARRSIZE][RCVSIZE], int expected[], int retransmit[]){
 	struct timeval timer, start, end;
 	timer.tv_sec=0;
 	timer.tv_usec=SRTT;
