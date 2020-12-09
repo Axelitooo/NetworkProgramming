@@ -155,6 +155,7 @@ void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT
 		}
 	}
 	printf("\n");
+	// flight = cwnd;
 	expect(client_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, startRTT);
 }
 
@@ -170,7 +171,6 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 	FD_SET(client_desc, &socket_table);
 	gettimeofday(&start, NULL);
 	int received = 0;
-	
 	int time = 0;
 	while (received < cwnd && time < SRTT) {
 		if(select(client_desc+1, &socket_table, NULL, NULL, &timer)==-1){
@@ -184,6 +184,7 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 			printf("Answer received : %s\n", buffer);
 			if (memcmp(buffer, "ACK", 3) == 0) {
 				received++;
+				//flight--;
 				// REMOVE SEQUENCE NUMBER AND BYTES FROM DATA
 				for (int i=0;i<ARRSIZE;i++) {
 					if (acks[i] == -1){
@@ -203,15 +204,14 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 			timer.tv_usec=0;
 		}
 	}
-	// CONGESTION AVOIDANCE CWND INCREMENTATION
-	if (mode==0) {
+	if (mode==0) { // SLOW START CWND INCREMENTATION
 		cwnd+=received;
-	}
-	// SLOW START CWND INCREMENTATION
-	else if (mode==1) {
+	} else if (mode==1) { // CONGESTION AVOIDANCE CWND INCREMENTATION
 		cwnd++;
 	}
-
+	if (cwnd>ARRSIZE) { // CORE DUMPED NOT COOL
+		cwnd = ARRSIZE;
+	}
 	printf("Tab acks at the end of expect :\n");
 	for(int i =0; i<ARRSIZE;i++){
 		printf("%d ",acks[i]);
@@ -238,6 +238,10 @@ int main (int argc, char *argv[]) {
 	int SRTT = 70000;
 	int mode = 1;
 	int cwnd = 1;
+	
+	// rwnd
+	// int flight = 0;
+	// int ssthresh = 32;
 
 	struct sockaddr_in adresse_udp, client_udp;
 	int port=0;
