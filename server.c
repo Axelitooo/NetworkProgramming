@@ -9,7 +9,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-#define RCVSIZE 1018
+#define RCVSIZE 1494
 #define ARRSIZE 256
 #define ALPHA	0.8
 
@@ -22,23 +22,23 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 
 void removeInt(int array[ARRSIZE], int index){
 	for (int i=index;i<ARRSIZE-1;i++) {
+		array[i] = array[i+1];
 		if (array[i+1] == -1) {
 			array[i]=-1;
 			break;
 		}
-		array[i] = array[i+1];
 	}
 	array[ARRSIZE-1]=-1;
 }
 // OPTMIMISATION : PARSE ONLY RELEVANT ARRAY ENTRIES
 void removeCharArray(char array[ARRSIZE][RCVSIZE], int index){
 	for (int i=index;i<ARRSIZE-1;i++) {
+		*array[i] = *array[i+1];
 		if (array[i+1] == 0) {
 			memset(array[i], 0, RCVSIZE);
 			*array[i] = 0;
 			break;
 		}
-		*array[i] = *array[i+1];
 	}
 	memset(array[ARRSIZE-1], 0, RCVSIZE);
 	*array[ARRSIZE-1] = 0;
@@ -126,15 +126,18 @@ void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT
 		if (acks[i] != -1) {
 			duplicate_sequence = acks[i];
 			generateSequenceNumber(message, duplicate_sequence);
-			printf("duplicate_sequence = %s\n", message);
+			//printf("duplicate_sequence sent = %s\n", message);
 			memcpy(message+6, data[i], RCVSIZE);
 			sendto(client_desc, message, RCVSIZE+6, 0, (struct sockaddr*) &addr, alen);
 			memset(buffer, 0, RCVSIZE);
 			memset(message, 0, RCVSIZE);
 		} else if ((file!=0 && file!=NULL) && (message_size>0)) {
 			message_size=fread(buffer, 1, RCVSIZE, file);
+			if(message_size==0){
+				break;
+			}
 			generateSequenceNumber(message, sequence);
-			printf("sequence = %s\n", message);
+			//printf("sequence sent = %s\n", message);
 			memcpy(message+6, buffer, message_size);
 			sendto(client_desc, message, message_size+6, 0, (struct sockaddr*) &addr, alen);
 			memcpy(data[i], message+6, sizeof(message+6));
@@ -142,19 +145,19 @@ void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT
 			sequence++;
 			memset(buffer, 0, RCVSIZE);
 			memset(message, 0, RCVSIZE);
-		} else {
+		} else if(i==0){
 			sendto(client_desc, "FIN", 3, 0, (struct sockaddr*) &addr, alen);
 			return;
 		}
 	}
-	printf("Tab acks at the end of transmit :\n");
+	/*printf("Tab acks at the end of transmit :\n");
 	for(int i =0; i<ARRSIZE;i++){
 		printf("%d ",acks[i]);
 		if((i+1)%10==0){
 			printf("\n");
 		}
 	}
-	printf("\n");
+	printf("\n");*/
 	// flight = cwnd;
 	expect(client_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, startRTT);
 }
@@ -172,6 +175,8 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 	gettimeofday(&start, NULL);
 	int received = 0;
 	int time = 0;
+
+	int maxACK=0;
 	while (received < cwnd && time < SRTT) {
 		if(select(client_desc+1, &socket_table, NULL, NULL, &timer)==-1){
 			perror("Select is ravaged\n");
@@ -181,16 +186,20 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 			gettimeofday(&end, NULL);
 			RTT=(end.tv_sec-startRTT.tv_sec)*1000000+(end.tv_usec-startRTT.tv_usec);
 			received_size = recvfrom(client_desc, buffer, 9, 0, (struct sockaddr*) &addr, &alen);
-			printf("Answer received : %s\n", buffer);
+			//printf("Answer received : %s\n", buffer);
 			if (memcmp(buffer, "ACK", 3) == 0) {
 				received++;
 				//flight--;
 				// REMOVE SEQUENCE NUMBER AND BYTES FROM DATA
+				if(atoi(buffer+3)>maxACK){
+					maxACK=atoi(buffer+3);
+				}
 				for (int i=0;i<ARRSIZE;i++) {
 					if (acks[i] == -1){
 						break;
 					}
-					if (atoi(buffer+3) >= acks[i]) {
+				
+					if (maxACK >= acks[i]) {
 						removeInt(acks, i);
 						removeCharArray(data, i); 
 					}
@@ -212,7 +221,7 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 	if (cwnd>ARRSIZE) { // CORE DUMPED NOT COOL
 		cwnd = ARRSIZE;
 	}
-	printf("Tab acks at the end of expect :\n");
+/*	printf("Tab acks at the end of expect :\n");
 	for(int i =0; i<ARRSIZE;i++){
 		printf("%d ",acks[i]);
 		if((i+1)%10==0){
@@ -220,7 +229,8 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 		}
 	}
 	printf("\n");
-
+*/	
+	printf("maxACK = %d\n", maxACK);
 	transmit(client_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr);
 }
 
@@ -300,12 +310,12 @@ int main (int argc, char *argv[]) {
 			socklen_t alen = sizeof(addr);
 			received_size = recvfrom(data_desc, buffer, RCVSIZE, 0, (struct sockaddr*) &addr, &alen);
 			buffer[received_size-1]='\0';
-			printf("Sending %s file to client, it take %d char\n", buffer, received_size);
+			//printf("Sending %s file to client, it take %d char\n", buffer, received_size);
 			file = fopen(buffer, "r");
 			gettimeofday(&startUpload, NULL);
 			transmit(data_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr);
 			gettimeofday(&endUpload, NULL);
-			printf("it take : %ld",(endUpload.tv_sec-startUpload.tv_sec)*1000000+(endUpload.tv_usec-startUpload.tv_usec));
+			//printf("it take : %ld",(endUpload.tv_sec-startUpload.tv_sec)*1000000+(endUpload.tv_usec-startUpload.tv_usec));
 		}
 
 		if(FD_ISSET(ctrl_desc, &sockTab)){
