@@ -10,7 +10,7 @@
 #include <time.h>
 
 #define RCVSIZE 1494
-#define ARRSIZE 256
+#define ARRSIZE 1024
 #define ALPHA	0.8
 
 void removeInt(int array[], int index);
@@ -32,16 +32,12 @@ void removeInt(int array[ARRSIZE], int index){
 }
 // OPTMIMISATION : PARSE ONLY RELEVANT ARRAY ENTRIES
 void removeCharArray(char array[ARRSIZE][RCVSIZE], int index){
-	for (int i=index;i<ARRSIZE-1;i++) {
-		*array[i] = *array[i+1];
-		if (array[i+1] == 0) {
-			memset(array[i], 0, RCVSIZE);
-			*array[i] = 0;
-			break;
-		}
+	memset(array[0], 0, RCVSIZE);
+	for (int i=0;i<ARRSIZE-1;i++) {
+		memcpy(array[i], array[i+1], RCVSIZE);
 	}
 	memset(array[ARRSIZE-1], 0, RCVSIZE);
-	*array[ARRSIZE-1] = 0;
+	//*array[ARRSIZE-1] = 0;
 }
 
 int serverHandShake(int ctrl_desc, int port){
@@ -83,6 +79,8 @@ int serverHandShake(int ctrl_desc, int port){
 		}
 }
 
+// OPTIMISATION : ZERO PADDING
+
 void generateSequenceNumber(char *buffer, int number){
 	char string[6];
 	sprintf(string, "%d", number);
@@ -117,7 +115,7 @@ void generateSequenceNumber(char *buffer, int number){
 
 void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr){
 	int duplicate_sequence;
-	char message[RCVSIZE];
+	char message[RCVSIZE+6];
 	char buffer[RCVSIZE];
 	socklen_t alen = sizeof(addr);
 	struct timeval startRTT;
@@ -129,8 +127,8 @@ void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT
 			//printf("duplicate_sequence sent = %s\n", message);
 			memcpy(message+6, data[i], RCVSIZE);
 			sendto(client_desc, message, RCVSIZE+6, 0, (struct sockaddr*) &addr, alen);
-			memset(buffer, 0, RCVSIZE);
-			memset(message, 0, RCVSIZE);
+			//memset(data[i], 0, RCVSIZE);
+			memset(message, 0, RCVSIZE+6);
 		} else if ((file!=0 && file!=NULL) && (message_size>0)) {
 			message_size=fread(buffer, 1, RCVSIZE, file);
 			if(message_size==0){
@@ -140,24 +138,17 @@ void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT
 			//printf("sequence sent = %s\n", message);
 			memcpy(message+6, buffer, message_size);
 			sendto(client_desc, message, message_size+6, 0, (struct sockaddr*) &addr, alen);
-			memcpy(data[i], message+6, sizeof(message+6));
+			memcpy(data[i], message+6, RCVSIZE);
 			acks[i] = sequence;
 			sequence++;
 			memset(buffer, 0, RCVSIZE);
-			memset(message, 0, RCVSIZE);
+			memset(message, 0, RCVSIZE+6);
 		} else if(i==0){
 			sendto(client_desc, "FIN", 3, 0, (struct sockaddr*) &addr, alen);
 			return;
 		}
 	}
-	/*printf("Tab acks at the end of transmit :\n");
-	for(int i =0; i<ARRSIZE;i++){
-		printf("%d ",acks[i]);
-		if((i+1)%10==0){
-			printf("\n");
-		}
-	}
-	printf("\n");*/
+	printf("\n");
 	// flight = cwnd;
 	expect(client_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, startRTT);
 }
@@ -198,10 +189,9 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 					if (acks[i] == -1){
 						break;
 					}
-				
 					if (maxACK >= acks[i]) {
 						removeInt(acks, i);
-						removeCharArray(data, i); 
+						removeCharArray(data, i);
 					}
 				}
 			}
@@ -218,19 +208,10 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 	} else if (mode==1) { // CONGESTION AVOIDANCE CWND INCREMENTATION
 		cwnd++;
 	}
-	if (cwnd>ARRSIZE) { // CORE DUMPED NOT COOL
-		cwnd = ARRSIZE;
+	if (cwnd>ARRSIZE-1) { // CORE DUMPED NOT COOL
+		cwnd = ARRSIZE-1;
 	}
-/*	printf("Tab acks at the end of expect :\n");
-	for(int i =0; i<ARRSIZE;i++){
-		printf("%d ",acks[i]);
-		if((i+1)%10==0){
-			printf("\n");
-		}
-	}
-	printf("\n");
-*/	
-	printf("maxACK = %d\n", maxACK);
+	//printf("maxACK = %d\n", maxACK);
 	transmit(client_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr);
 }
 
@@ -239,14 +220,13 @@ int main (int argc, char *argv[]) {
 	int acks[ARRSIZE];
 	for (int i=0;i<ARRSIZE-1;i++) {
 		memset(data[i], 0, RCVSIZE);
-		*data[i] = 0;
 		acks[i] = -1;
 	}
 	int message_size = 1;
 	int sequence = 1;
 	int RTT;
 	int SRTT = 70000;
-	int mode = 1;
+	int mode = 0; // mode = 0 <=> SLOW START ; mode = 1 <=> CONGESTION AVOIDANCE
 	int cwnd = 1;
 	
 	// rwnd
