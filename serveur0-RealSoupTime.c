@@ -14,8 +14,8 @@
 #define SEQSIZE 6
 #define ALPHA	0.8
 
-void removeInt(int array[], int index);
-//int removeInt(int array[]);
+void removeInt(int array[ARRSIZE], int index);
+//int removeInt(int array[ARRSIZE]);
 void removeCharArray(char array[ARRSIZE][RCVSIZE], int index);
 int serverHandShake(int ctrl_desc, int port);
 void generateSequenceNumber(char *buffer, int number);
@@ -23,7 +23,7 @@ void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT
 void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, struct timeval* startRTT, char buffer[RCVSIZE], char message[RCVSIZE+SEQSIZE]);
 
 void removeInt(int array[ARRSIZE], int index){
-	for (int i=index;i<ARRSIZE-1;i++) {
+	for (int i=0;i<ARRSIZE-1;i++) {
 		array[i] = array[i+1];
 		if (array[i+1] == -1) {
 			array[i]=-1;
@@ -65,47 +65,43 @@ void removeCharArray(char array[ARRSIZE][RCVSIZE], int index){
 }*/
 
 int serverHandShake(int ctrl_desc, int port){
-		char Tx[RCVSIZE]="SYN-ACK";
-		char buffer[10];
-		sprintf(buffer, "%d", port); // mettre plusieur numero de port pour plusieur client
-		strcat(Tx, buffer);
-		char Rx[RCVSIZE]="";
-		struct sockaddr_in adresse_client, adresse_server;
-		socklen_t alen= sizeof(adresse_client);
-
-		adresse_server.sin_family= AF_INET;
-		adresse_server.sin_port= htons(port);
-		adresse_server.sin_addr.s_addr= htonl(INADDR_ANY);
-
-		int client_desc= socket(AF_INET, SOCK_DGRAM,0);
-		if (bind(client_desc, (struct sockaddr*) &adresse_server, sizeof(adresse_server)) == -1) {
-				perror("Bind failed\n");
-				close(client_desc);
-				return -1;
-		}
-
-
-		recvfrom(ctrl_desc, Rx, RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
-		printf("Message received\n");
-		if(strcmp(Rx,"SYN")==0){
-				printf("Sending SYN-ACK\n");
-				sendto(ctrl_desc,Tx, strlen(Tx), 0, (struct sockaddr*) &adresse_client, alen);
-				memset(Rx,0, RCVSIZE);
-				recvfrom(ctrl_desc, Rx, RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
-				if(strcmp(Rx,"ACK")!=0){
-						printf("NO ACK RECEIVED FROM CLIENT, msg=%s", Rx);
-				}else{
-					printf("Covid was sucessfully transmited!\n");
-						return client_desc;
-				}
-		}else{
-				printf("ERRORR, msg:%s\n", Rx);
-		}
+	char Tx[RCVSIZE]="SYN-ACK";
+	char buffer[10];
+	sprintf(buffer, "%d", port); // mettre plusieur numero de port pour plusieur client
+	strcat(Tx, buffer);
+	char Rx[RCVSIZE]="";
+	struct sockaddr_in adresse_client, adresse_server;
+	socklen_t alen= sizeof(adresse_client);
+	adresse_server.sin_family= AF_INET;
+	adresse_server.sin_port= htons(port);
+	adresse_server.sin_addr.s_addr= htonl(INADDR_ANY);
+	int client_desc= socket(AF_INET, SOCK_DGRAM,0);
+	if (bind(client_desc, (struct sockaddr*) &adresse_server, sizeof(adresse_server)) == -1) {
+			perror("Bind failed\n");
+			close(client_desc);
+			return -1;
+	}
+	recvfrom(ctrl_desc, Rx, RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
+	printf("Message received\n");
+	if(strcmp(Rx,"SYN")==0){
+			printf("Sending SYN-ACK\n");
+			sendto(ctrl_desc,Tx, strlen(Tx), 0, (struct sockaddr*) &adresse_client, alen);
+			memset(Rx,0, RCVSIZE);
+			recvfrom(ctrl_desc, Rx, RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
+			if(strcmp(Rx,"ACK")!=0){
+					printf("NO ACK RECEIVED FROM CLIENT, msg=%s", Rx);
+			}else{
+				printf("Covid was sucessfully transmited!\n");
+					return client_desc;
+			}
+	}else{
+			printf("ERRORR, msg:%s\n", Rx);
+	}
 }
 
 // OPTIMISATION : ZERO PADDING
 void generateSequenceNumber(char *buffer, int number){
-	char string[SEQSIZE];
+	char* string = (char*)calloc(SEQSIZE, SEQSIZE*sizeof(char));
 	memset(string, 0, SEQSIZE);
 	sprintf(string, "%d", number);
 	number%=1000000;
@@ -134,6 +130,7 @@ void generateSequenceNumber(char *buffer, int number){
 		}
 	}
 	strcat(buffer, string);
+	free(string);
 }
 
 void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, char buffer[RCVSIZE], char message[RCVSIZE+SEQSIZE]){
@@ -147,18 +144,20 @@ void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT
 		if (acks[i] != -1) {
 			*duplicate_sequence = acks[i];
 			generateSequenceNumber(message, *duplicate_sequence);
-			//printf("duplicate_sequence sent = %s\n", message);
 			memcpy(message+SEQSIZE, data[i], RCVSIZE);
-			sendto(client_desc, message, RCVSIZE+SEQSIZE, 0, (struct sockaddr*) &addr, *alen);
-			//memset(data[i], 0, RCVSIZE);
-			memset(message, 0, RCVSIZE+SEQSIZE);
-		} else if ((file!=0 && file!=NULL) && (message_size>0)) {
-			message_size=fread(buffer, 1, RCVSIZE, file);
-			if(message_size==0){
-				break;
+			if (i != ARRSIZE) {
+				if (acks[i+1] == -1) {
+					sendto(client_desc, message, message_size+SEQSIZE, 0, (struct sockaddr*) &addr, *alen);
+				} else {
+					sendto(client_desc, message, RCVSIZE+SEQSIZE, 0, (struct sockaddr*) &addr, *alen);
+				}
+			} else {
+				sendto(client_desc, message, message_size+SEQSIZE, 0, (struct sockaddr*) &addr, *alen);
 			}
+			memset(message, 0, RCVSIZE+SEQSIZE);
+		} else if ((file!=0 && file!=NULL) && (message_size==RCVSIZE)) {
+			message_size=fread(buffer, 1, RCVSIZE, file);
 			generateSequenceNumber(message, sequence);
-			//printf("sequence sent = %s\n", message);
 			memcpy(message+SEQSIZE, buffer, message_size);
 			sendto(client_desc, message, message_size+SEQSIZE, 0, (struct sockaddr*) &addr, *alen);
 			memcpy(data[i], message+SEQSIZE, RCVSIZE);
@@ -166,6 +165,9 @@ void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT
 			sequence++;
 			memset(buffer, 0, RCVSIZE);
 			memset(message, 0, RCVSIZE+SEQSIZE);
+			if(message_size < RCVSIZE){
+				break;
+			}
 		} else if(i==0){
 			sendto(client_desc, "FIN", 3, 0, (struct sockaddr*) &addr, *alen);
 			return;
@@ -193,12 +195,9 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 	FD_ZERO(socket_table);
 	FD_SET(client_desc, socket_table);
 	gettimeofday(start, NULL);
-	int* received = (int*)malloc(sizeof(int));
-	*received = 0;
-	int* time = (int*)malloc(sizeof(int));
-	*time = 0;
-	int* maxACK = (int*)malloc(sizeof(int));
-	*maxACK = 0;
+	int* received = (int*)calloc(1, sizeof(int));
+	int* time = (int*)calloc(1, sizeof(int));
+	int* maxACK = (int*)calloc(1, sizeof(int));
 	while (*received < cwnd && *time < SRTT) {
 		if(select(client_desc+1, socket_table, NULL, NULL, timer)==-1){
 			perror("Select is ravaged\n");
@@ -243,6 +242,7 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 		cwnd = ARRSIZE-1;
 	}
 	//printf("received_size : %ls\nreceived : %ls\ntime : %ls\n", received_size, received, time);
+	SRTT = ALPHA*SRTT+(1-ALPHA)*RTT;
 	free(received_size);
 	free(received);
 	free(time);
@@ -260,17 +260,15 @@ int main (int argc, char *argv[]) {
 		memset(data[i], 0, RCVSIZE);
 		acks[i] = -1;
 	}
-	int message_size = 1;
+	int message_size = RCVSIZE;
 	int sequence = 1;
-	int RTT;
-	int SRTT = 15000;
+	int RTT = 16000;
+	int SRTT = 16000;
 	int mode = 0; // mode = 0 <=> SLOW START ; mode = 1 <=> CONGESTION AVOIDANCE
 	int cwnd = 1;
-	
 	// rwnd
 	// int flight = 0;
 	// int ssthresh = 32;
-
 	struct sockaddr_in adresse_udp, client_udp;
 	int port=0;
 	if(argc==2){
@@ -282,25 +280,19 @@ int main (int argc, char *argv[]) {
 	char buffer[RCVSIZE]="";
 	char message[RCVSIZE];
 	struct timeval startUpload, endUpload;
-
 	//create socket
 	int ctrl_desc = socket(AF_INET, SOCK_DGRAM, 0);
-
 	//Handle error
 	if(ctrl_desc <0){
 		perror("Cannot create udp socket\n");
 		return -1;
 	}
-
 	fd_set sockTab;
-
 	//SERVEUR UDP
 	setsockopt(ctrl_desc, SOL_SOCKET, SO_REUSEADDR, &valid, sizeof(int));
-
 	adresse_udp.sin_family= AF_INET;
 	adresse_udp.sin_port= htons(port);
 	adresse_udp.sin_addr.s_addr= htonl(INADDR_ANY);
-
 	//initialize socket
 	if (bind(ctrl_desc, (struct sockaddr*) &adresse_udp, sizeof(adresse_udp)) == -1) {
 		perror("Bind failed\n");
@@ -330,6 +322,7 @@ int main (int argc, char *argv[]) {
 			transmit(data_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, buffer, message);
 			gettimeofday(&endUpload, NULL);
 			printf("Time : %ld\n", (endUpload.tv_sec-startUpload.tv_sec)*1000000+(endUpload.tv_usec-startUpload.tv_usec));
+			break;
 		}
 		if(FD_ISSET(ctrl_desc, &sockTab)){
 			printf("Control msg received \n");
