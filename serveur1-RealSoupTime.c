@@ -10,17 +10,36 @@
 #include <time.h>
 
 #define RCVSIZE 1444
-#define ARRSIZE 256
+#define ARRSIZE 1024
 #define SEQSIZE 6
 #define ALPHA	0.8
 
-int removeInt(int array[]);
+void removeInt(int array[ARRSIZE], int index);
 void removeCharArray(char array[ARRSIZE][RCVSIZE], int index);
 int serverHandShake(int ctrl_desc, int port);
 void generateSequenceNumber(char *buffer, int number);
-void transmit(int client_desc, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, int flight, int ssthresh, int maxACK);
-void expect(int client_desc, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, struct timeval startRTT, int flight, int ssthresh, int maxACK);
+void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, char buffer[RCVSIZE], char message[RCVSIZE+SEQSIZE], int flight, int ssthresh);
+void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, struct timeval* startRTT, char buffer[RCVSIZE], char message[RCVSIZE+SEQSIZE], int flight, int ssthresh);
 
+void removeInt(int array[ARRSIZE], int index){
+	for (int i=0;i<ARRSIZE-1;i++) {
+		array[i] = array[i+1];
+		if (array[i+1] == -1) {
+			array[i]=-1;
+			break;
+		}
+	}
+	array[ARRSIZE-1]=-1;
+}
+
+// OPTIMISATION : PARSE ONLY RELEVANT ARRAY ENTRIES
+void removeCharArray(char array[ARRSIZE][RCVSIZE], int index){
+	memset(array[0], 0, RCVSIZE);
+	for (int i=0;i<ARRSIZE-1;i++) {
+		memcpy(array[i], array[i+1], RCVSIZE);
+	}
+	memset(array[ARRSIZE-1], 0, RCVSIZE);
+}/*
 int removeInt(int array[ARRSIZE]){
 	//printf("- int removing");
 	for (int i=0;i<ARRSIZE-1;i++) {
@@ -42,50 +61,46 @@ void removeCharArray(char array[ARRSIZE][RCVSIZE], int index){
 		memcpy(array[i], array[i+1], RCVSIZE);
 	}
 	memset(array[index-1], 0, RCVSIZE);
-}
+}*/
 
 int serverHandShake(int ctrl_desc, int port){
-		char Tx[RCVSIZE]="SYN-ACK";
-		char buffer[10];
-		sprintf(buffer, "%d", port); // mettre plusieur numero de port pour plusieur client
-		strcat(Tx, buffer);
-		char Rx[RCVSIZE]="";
-		struct sockaddr_in adresse_client, adresse_server;
-		socklen_t alen= sizeof(adresse_client);
-
-		adresse_server.sin_family= AF_INET;
-		adresse_server.sin_port= htons(port);
-		adresse_server.sin_addr.s_addr= htonl(INADDR_ANY);
-
-		int client_desc= socket(AF_INET, SOCK_DGRAM,0);
-		if (bind(client_desc, (struct sockaddr*) &adresse_server, sizeof(adresse_server)) == -1) {
-				perror("Bind failed\n");
-				close(client_desc);
-				return -1;
-		}
-
-
-		recvfrom(ctrl_desc, Rx, RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
-		printf("Message received\n");
-		if(strcmp(Rx,"SYN")==0){
-				printf("Sending SYN-ACK\n");
-						sendto(ctrl_desc,Tx, strlen(Tx), 0, (struct sockaddr*) &adresse_client, alen);
-				memset(Rx,0, RCVSIZE);
-				recvfrom(ctrl_desc, Rx, RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
-				if(strcmp(Rx,"ACK")!=0){
-						printf("NO ACK RECEIVED FROM CLIENT, msg=%s", Rx);
-				}else{
-					printf("Covid was sucessfully transmited!\n");
-						return client_desc;
-				}
-		}else{
-				printf("ERRORR, msg:%s\n", Rx);
-		}
+	char Tx[RCVSIZE]="SYN-ACK";
+	char buffer[10];
+	sprintf(buffer, "%d", port); // mettre plusieur numero de port pour plusieur client
+	strcat(Tx, buffer);
+	char Rx[RCVSIZE]="";
+	struct sockaddr_in adresse_client, adresse_server;
+	socklen_t alen= sizeof(adresse_client);
+	adresse_server.sin_family= AF_INET;
+	adresse_server.sin_port= htons(port);
+	adresse_server.sin_addr.s_addr= htonl(INADDR_ANY);
+	int client_desc= socket(AF_INET, SOCK_DGRAM,0);
+	if (bind(client_desc, (struct sockaddr*) &adresse_server, sizeof(adresse_server)) == -1) {
+			perror("Bind failed\n");
+			close(client_desc);
+			return -1;
+	}
+	recvfrom(ctrl_desc, Rx, RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
+	printf("Message received\n");
+	if(strcmp(Rx,"SYN")==0){
+			printf("Sending SYN-ACK\n");
+			sendto(ctrl_desc,Tx, strlen(Tx), 0, (struct sockaddr*) &adresse_client, alen);
+			memset(Rx,0, RCVSIZE);
+			recvfrom(ctrl_desc, Rx, RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
+			if(strcmp(Rx,"ACK")!=0){
+					printf("NO ACK RECEIVED FROM CLIENT, msg=%s", Rx);
+			}else{
+				printf("Covid was sucessfully transmited!\n");
+					return client_desc;
+			}
+	}else{
+			printf("ERRORR, msg:%s\n", Rx);
+	}
 }
 
 // OPTIMISATION : ZERO PADDING
 void generateSequenceNumber(char *buffer, int number){
-	char string[SEQSIZE];
+	char* string = (char*)calloc(SEQSIZE, SEQSIZE*sizeof(char));
 	memset(string, 0, SEQSIZE);
 	sprintf(string, "%d", number);
 	number%=1000000;
@@ -113,137 +128,157 @@ void generateSequenceNumber(char *buffer, int number){
 			}
 		}
 	}
-	strcat(buffer, string);	
+	strcat(buffer, string);
+	free(string);
 }
 
-void transmit(int client_desc, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, int flight, int ssthresh, int maxACK){
-	printf("transmitting\n");
-	int duplicate_sequence;
-	int message_size = 1;
-	int forwarded = 0;
-	char message[RCVSIZE+SEQSIZE];
-	char buffer[RCVSIZE];
-	socklen_t alen = sizeof(addr);
-	struct timeval startRTT;
-	gettimeofday(&startRTT, NULL);
-	printf("variables initialized\n");
+void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, char buffer[RCVSIZE], char message[RCVSIZE+SEQSIZE], int flight, int ssthresh){
+	int* duplicate_sequence = (int*)malloc(sizeof(int));
+	int* forwarded = (int*)calloc(1, sizeof(int));
+	//socklen_t alen = sizeof(addr);
+	socklen_t* alen = (socklen_t*)malloc(sizeof(socklen_t));
+	*alen = sizeof(addr);
+	struct timeval* startRTT = (struct timeval*)malloc(sizeof(struct timeval));
+	gettimeofday(startRTT, NULL);
 	for (int i=0;i<cwnd;i++) {
 		if (acks[i] != -1) {
-			if ((mode == 1) && (i == 1)) {
+			*duplicate_sequence = acks[i];
+			generateSequenceNumber(message, *duplicate_sequence);
+			memcpy(message+SEQSIZE, data[i], RCVSIZE);
+			if (i != ARRSIZE) {
+				if (acks[i+1] == -1) {
+					sendto(client_desc, message, message_size+SEQSIZE, 0, (struct sockaddr*) &addr, *alen);
+				} else {
+					sendto(client_desc, message, RCVSIZE+SEQSIZE, 0, (struct sockaddr*) &addr, *alen);
+				}
+			} else {
+				sendto(client_desc, message, message_size+SEQSIZE, 0, (struct sockaddr*) &addr, *alen);
+			}
+			memset(message, 0, RCVSIZE + SEQSIZE);
+			*forwarded += 1;
+			if ((i == 0) && (mode == 1)) {
 				break;
 			}
-			duplicate_sequence = acks[i];
-			generateSequenceNumber(message, duplicate_sequence);
-			memcpy(message+SEQSIZE, data[i], RCVSIZE);
-			sendto(client_desc, message, RCVSIZE+SEQSIZE, 0, (struct sockaddr*) &addr, alen);
-			//memset(data[i], 0, RCVSIZE);
-			memset(message, 0, RCVSIZE+SEQSIZE);
-			forwarded++;
-			printf("- retransmission %d\n", duplicate_sequence);
-		} else if ((file!=0 && file!=NULL) && (message_size>0)) {
-			if (i == 0) {
+		} else if ((file != 0 && file != NULL) && (message_size == RCVSIZE)) {
+			if ((i == 0) && (mode == 1)) {
 				printf("mode slow start\n");
 				mode = 0;
 			}
 			message_size=fread(buffer, 1, RCVSIZE, file);
-			if(message_size==0){
-				break;
-			}
 			generateSequenceNumber(message, sequence);
 			memcpy(message+SEQSIZE, buffer, message_size);
-			sendto(client_desc, message, message_size+SEQSIZE, 0, (struct sockaddr*) &addr, alen);
+			sendto(client_desc, message, message_size+SEQSIZE, 0, (struct sockaddr*) &addr, *alen);
 			memcpy(data[i], message+SEQSIZE, RCVSIZE);
 			acks[i] = sequence;
-			printf("- transmission %d\n", sequence);
+			sequence+=1;
+			*forwarded+=1;
 			memset(buffer, 0, RCVSIZE);
-			memset(message, 0, message_size+SEQSIZE);
-			sequence++;
-			forwarded++;
+			memset(message, 0, RCVSIZE+SEQSIZE);
+			if(message_size < RCVSIZE){
+				break;
+			}
 		} else if(i==0){
-			sendto(client_desc, "FIN", 3, 0, (struct sockaddr*) &addr, alen);
-			forwarded++;
+			sendto(client_desc, "FIN", 3, 0, (struct sockaddr*) &addr, *alen);
 			return;
 		}
 	}
-	flight = forwarded;
-	expect(client_desc, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, startRTT, flight, ssthresh, maxACK);
+	flight = *forwarded;
+	free(forwarded);
+	free(duplicate_sequence);
+	free(alen);
+	expect(client_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, startRTT, buffer, message, flight, ssthresh);
 }
 
-void expect(int client_desc, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, struct timeval startRTT, int flight, int ssthresh, int maxACK){
-	printf("expecting\n");
-	struct timeval timer, start, end;
-	int received_size;
-	timer.tv_sec=0; // Gerer les secs 
-	timer.tv_usec=SRTT;
-	char buffer[RCVSIZE];
-	socklen_t alen = sizeof(addr);
-	fd_set socket_table;
-	FD_ZERO(&socket_table);
-	FD_SET(client_desc, &socket_table);
-	gettimeofday(&start, NULL);
-	int received = 0;
-	int time = 0;
-	int ndup = -1;
-	while (received < cwnd && time < SRTT) {
-		if(select(client_desc+1, &socket_table, NULL, NULL, &timer)==-1){
+void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, struct timeval* startRTT, char buffer[RCVSIZE], char message[RCVSIZE+SEQSIZE], int flight, int ssthresh){
+	//struct timeval timer, start, end;
+	struct timeval* timer = (struct timeval*)malloc(sizeof(struct timeval));
+	struct timeval* start = (struct timeval*)malloc(sizeof(struct timeval));
+	struct timeval* end = (struct timeval*)malloc(sizeof(struct timeval));
+	int* received_size = (int*)malloc(sizeof(int));
+	timer->tv_sec=0; // Gerer les secs
+	timer->tv_usec=SRTT;
+	//socklen_t alen = sizeof(addr);
+	socklen_t* alen = (socklen_t*)malloc(sizeof(socklen_t));
+	*alen = sizeof(addr);
+	//fd_set socket_table;
+	fd_set* socket_table = (fd_set*)malloc(sizeof(fd_set));
+	FD_ZERO(socket_table);
+	FD_SET(client_desc, socket_table);
+	gettimeofday(start, NULL);
+	int* received = (int*)calloc(1, sizeof(int));
+	int* time = (int*)calloc(1, sizeof(int));
+	int* nACKs = (int*)calloc(1, sizeof(int));
+	int* maxACK = (int*)malloc(sizeof(int));
+	while (*received < cwnd && *time < SRTT) {
+		if(select(client_desc+1, socket_table, NULL, NULL, timer)==-1){
 			perror("Select is ravaged\n");
 			return;
 		}
-		if(FD_ISSET(client_desc, &socket_table)){
-			gettimeofday(&end, NULL);
-			RTT=(end.tv_sec-startRTT.tv_sec)*1000000+(end.tv_usec-startRTT.tv_usec);
-			received_size = recvfrom(client_desc, buffer, 9, 0, (struct sockaddr*) &addr, &alen);
+		if(FD_ISSET(client_desc, socket_table)){
+			gettimeofday(end, NULL);
+			RTT=(end->tv_sec - startRTT->tv_sec) * 1000000 + (end->tv_usec - startRTT->tv_usec);
+			*received_size = recvfrom(client_desc, buffer, 9, 0, (struct sockaddr*) &addr, alen);
 			if (memcmp(buffer, "ACK", 3) == 0) {
-				if(atoi(buffer+3)>maxACK){
-					maxACK=atoi(buffer+3);
-					ndup = 0;
+				if(atoi(buffer+3) > *maxACK){
+					*maxACK=atoi(buffer+3);
+					*nACKs=1;
 					printf("new ack %d, ndup update\n", atoi(buffer+3));
-				} else if (atoi(buffer+3) == maxACK){
-					ndup++;
+				} else if (atoi(buffer+3) == *maxACK){
+					*nACKs+=1;
 					printf("dup ack %d, ndup inc\n", atoi(buffer+3));
 				}
-				received++;
-				flight--;
-				if (ndup >= 3) {
+				*received += 1;
+				flight -= 1;
+				if (*nACKs == 4) {
 					ssthresh = flight;
-					cwnd = ssthresh;
+					//cwnd = ssthresh + *nACKs - 1;
 					printf("mode congestion\n");
 					mode = 1;
-					break;
 				}
 				// REMOVE SEQUENCE NUMBER AND BYTES FROM DATA
+				if(atoi(buffer+3)>*maxACK){
+					*maxACK=atoi(buffer+3);
+				}
 				for (int i=0;i<ARRSIZE;i++) {
 					if (acks[i] == -1){
 						break;
-					} else if (maxACK >= acks[i]) {
-						removeCharArray(data, removeInt(acks));
-						//printf("i = %d\n", i);
-						//printf("maxACK = %d\n", maxACK);
-						i--;
+					}
+					if (*maxACK >= acks[i]) {
+						removeInt(acks, i);
+						removeCharArray(data, i);
+						i-=1;
 					}
 				}
 			}
 		}
-		gettimeofday(&end, NULL);
-		time = (end.tv_sec-start.tv_sec)*1000000+(end.tv_usec-start.tv_usec);
-		timer.tv_usec = SRTT-time;
-		if(timer.tv_usec<0){
-			timer.tv_usec=0;
+		gettimeofday(end, NULL);
+		*time = (end->tv_sec-start->tv_sec)*1000000+(end->tv_usec-start->tv_usec);
+		timer->tv_usec = SRTT - *time;
+		if(timer->tv_usec<0){
+			timer->tv_usec=0;
 		}
 	}
-	/*if (ndup != 3) {
-		SRTT = ALPHA*SRTT+(1-ALPHA)*RTT;
-	}*/
-	printf("SRTT = %d\n", SRTT);
 	if (mode==0) { // SLOW START CWND INCREMENTATION
-		cwnd+=received;
+		cwnd+=*received;
 	} else if (mode==1) { // CONGESTION AVOIDANCE CWND INCREMENTATION
-		cwnd++;
+		cwnd+=1;
 	}
 	if (cwnd>ARRSIZE-1) { // CORE DUMPED NOT COOL
 		cwnd=ARRSIZE-1;
 	}
-	transmit(client_desc, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, flight, ssthresh, maxACK);
+	//printf("received_size : %ls\nreceived : %ls\ntime : %ls\n", received_size, received, time);
+	printf("RTT = %d\n", RTT);
+	//SRTT = ALPHA*SRTT+(1-ALPHA)*RTT;
+	printf("SRTT = %d\n", SRTT);
+	free(received_size);
+	free(received);
+	free(time);
+	free(nACKs);
+	free(maxACK);
+	free(startRTT);
+	free(socket_table);
+	free(alen);
+	transmit(client_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, buffer, message, flight, ssthresh);
 }
 
 int main (int argc, char *argv[]) {
@@ -253,18 +288,15 @@ int main (int argc, char *argv[]) {
 		memset(data[i], 0, RCVSIZE);
 		acks[i] = -1;
 	}
-	int message_size = 1;
+	int message_size = RCVSIZE;
 	int sequence = 1;
-	int RTT = 20000;
-	int SRTT = 20000;
-	int mode = 1; // mode = 0 <=> SLOW START ; mode = 1 <=> CONGESTION AVOIDANCE
+	int RTT = 15000;
+	int SRTT = 15000;
+	int mode = 0; // mode = 0 <=> SLOW START ; mode = 1 <=> CONGESTION AVOIDANCE
 	int cwnd = 1;
-	int maxACK = 0;
-	
 	// rwnd
 	int flight = 0;
 	int ssthresh = 1024;
-
 	struct sockaddr_in adresse_udp, client_udp;
 	int port=0;
 	if(argc==2){
@@ -274,45 +306,36 @@ int main (int argc, char *argv[]) {
 	int test;
 	socklen_t alen_udp = sizeof(client_udp);
 	char buffer[RCVSIZE]="";
+	char message[RCVSIZE];
 	struct timeval startUpload, endUpload;
-
 	//create socket
 	int ctrl_desc = socket(AF_INET, SOCK_DGRAM, 0);
-
 	//Handle error
 	if(ctrl_desc <0){
 		perror("Cannot create udp socket\n");
 		return -1;
 	}
-
 	fd_set sockTab;
-
 	//SERVEUR UDP
 	setsockopt(ctrl_desc, SOL_SOCKET, SO_REUSEADDR, &valid, sizeof(int));
-
 	adresse_udp.sin_family= AF_INET;
 	adresse_udp.sin_port= htons(port);
 	adresse_udp.sin_addr.s_addr= htonl(INADDR_ANY);
-
 	//initialize socket
 	if (bind(ctrl_desc, (struct sockaddr*) &adresse_udp, sizeof(adresse_udp)) == -1) {
 		perror("Bind failed\n");
 		close(ctrl_desc);
 		return -1;
 	}
-
 	int data_desc = serverHandShake(ctrl_desc, port+1); //generer un num de port aleatoire
-
 	while (1) {
 		FD_ZERO(&sockTab);
 		FD_SET(ctrl_desc, &sockTab);
 		FD_SET(data_desc, &sockTab);
-		
 		if(select(ctrl_desc+data_desc+1, &sockTab,NULL, NULL, NULL)==-1){
 			perror("select is ravaged\n");
 			return -1;
 		}
-
 		if(FD_ISSET(data_desc, &sockTab)){
 			int received_size;
 			char buffer[RCVSIZE];
@@ -324,11 +347,11 @@ int main (int argc, char *argv[]) {
 			//printf("Sending %s file to client, it take %d char\n", buffer, received_size);
 			file = fopen(buffer, "r");
 			gettimeofday(&startUpload, NULL);
-			transmit(data_desc, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, flight, ssthresh, maxACK);
+			transmit(data_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, buffer, message, flight, ssthresh);
 			gettimeofday(&endUpload, NULL);
 			printf("Time : %ld\n", (endUpload.tv_sec-startUpload.tv_sec)*1000000+(endUpload.tv_usec-startUpload.tv_usec));
+			break;
 		}
-
 		if(FD_ISSET(ctrl_desc, &sockTab)){
 			printf("Control msg received \n");
 		}
