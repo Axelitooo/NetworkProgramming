@@ -9,7 +9,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-#define RCVSIZE 1494
+#define RCVSIZE 1444
 #define ARRSIZE 1024
 #define SEQSIZE 6
 #define ALPHA	0.8

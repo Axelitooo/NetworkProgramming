@@ -9,17 +9,18 @@
 #include <sys/time.h>
 #include <time.h>
 
-#define RCVSIZE 1494
+#define RCVSIZE 1444
 #define ARRSIZE 1024
 #define SEQSIZE 6
 #define ALPHA	0.8
 
 void removeInt(int array[], int index);
+//int removeInt(int array[]);
 void removeCharArray(char array[ARRSIZE][RCVSIZE], int index);
 int serverHandShake(int ctrl_desc, int port);
 void generateSequenceNumber(char *buffer, int number);
-void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr);
-void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, struct timeval startRTT);
+void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, char buffer[RCVSIZE], char message[RCVSIZE+SEQSIZE]);
+void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, struct timeval startRTT, char buffer[RCVSIZE], char message[RCVSIZE+SEQSIZE]);
 
 void removeInt(int array[ARRSIZE], int index){
 	for (int i=index;i<ARRSIZE-1;i++) {
@@ -39,7 +40,29 @@ void removeCharArray(char array[ARRSIZE][RCVSIZE], int index){
 		memcpy(array[i], array[i+1], RCVSIZE);
 	}
 	memset(array[ARRSIZE-1], 0, RCVSIZE);
+}/*
+int removeInt(int array[ARRSIZE]){
+	//printf("- int removing");
+	for (int i=0;i<ARRSIZE-1;i++) {
+		array[i] = array[i+1];
+		if (array[i+1] == -1) {
+			return i+1;
+		} else if (i == ARRSIZE-1) {
+			array[i+1] = -1;
+		}
+	}
+	return ARRSIZE;
 }
+
+// OPTIMISATION : PARSE ONLY RELEVANT ARRAY ENTRIES
+void removeCharArray(char array[ARRSIZE][RCVSIZE], int index){
+	//printf("- array removing");
+	for (int i=0;i<index-1;i++) {
+		memset(array[i], 0, RCVSIZE);
+		memcpy(array[i], array[i+1], RCVSIZE);
+	}
+	memset(array[index-1], 0, RCVSIZE);
+}*/
 
 int serverHandShake(int ctrl_desc, int port){
 		char Tx[RCVSIZE]="SYN-ACK";
@@ -66,7 +89,7 @@ int serverHandShake(int ctrl_desc, int port){
 		printf("Message received\n");
 		if(strcmp(Rx,"SYN")==0){
 				printf("Sending SYN-ACK\n");
-						sendto(ctrl_desc,Tx, strlen(Tx), 0, (struct sockaddr*) &adresse_client, alen);
+				sendto(ctrl_desc,Tx, strlen(Tx), 0, (struct sockaddr*) &adresse_client, alen);
 				memset(Rx,0, RCVSIZE);
 				recvfrom(ctrl_desc, Rx, RCVSIZE, 0, (struct sockaddr*) &adresse_client, &alen);
 				if(strcmp(Rx,"ACK")!=0){
@@ -110,13 +133,11 @@ void generateSequenceNumber(char *buffer, int number){
 			}
 		}
 	}
-	strcat(buffer, string);	
+	strcat(buffer, string);
 }
 
-void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr){
+void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, char buffer[RCVSIZE], char message[RCVSIZE+SEQSIZE]){
 	int duplicate_sequence;
-	char message[RCVSIZE+SEQSIZE];
-	char buffer[RCVSIZE];
 	socklen_t alen = sizeof(addr);
 	struct timeval startRTT;
 	gettimeofday(&startRTT, NULL);
@@ -148,17 +169,15 @@ void transmit(int client_desc, int message_size, int sequence, int RTT, int SRTT
 			return;
 		}
 	}
-	printf("\n");
 	// flight = cwnd;
-	expect(client_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, startRTT);
+	expect(client_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, startRTT, buffer, message);
 }
 
-void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, struct timeval startRTT){
+void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, int mode, int cwnd, char data[ARRSIZE][RCVSIZE], int acks[ARRSIZE], FILE* file, struct sockaddr_in addr, struct timeval startRTT, char buffer[RCVSIZE], char message[RCVSIZE+SEQSIZE]){
 	struct timeval timer, start, end;
 	int received_size;
 	timer.tv_sec=0; // Gerer les secs 
 	timer.tv_usec=SRTT;
-	char buffer[RCVSIZE];
 	socklen_t alen = sizeof(addr);
 	fd_set socket_table;
 	FD_ZERO(&socket_table);
@@ -211,7 +230,7 @@ void expect(int client_desc, int message_size, int sequence, int RTT, int SRTT, 
 	if (cwnd>ARRSIZE-1) { // CORE DUMPED NOT COOL
 		cwnd = ARRSIZE-1;
 	}
-	transmit(client_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr);
+	transmit(client_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, buffer, message);
 }
 
 int main (int argc, char *argv[]) {
@@ -224,8 +243,8 @@ int main (int argc, char *argv[]) {
 	int message_size = 1;
 	int sequence = 1;
 	int RTT;
-	int SRTT = 70000;
-	int mode = 1; // mode = 0 <=> SLOW START ; mode = 1 <=> CONGESTION AVOIDANCE
+	int SRTT = 15000;
+	int mode = 0; // mode = 0 <=> SLOW START ; mode = 1 <=> CONGESTION AVOIDANCE
 	int cwnd = 1;
 	
 	// rwnd
@@ -241,6 +260,7 @@ int main (int argc, char *argv[]) {
 	int test;
 	socklen_t alen_udp = sizeof(client_udp);
 	char buffer[RCVSIZE]="";
+	char message[RCVSIZE];
 	struct timeval startUpload, endUpload;
 
 	//create socket
@@ -267,19 +287,15 @@ int main (int argc, char *argv[]) {
 		close(ctrl_desc);
 		return -1;
 	}
-
 	int data_desc = serverHandShake(ctrl_desc, port+1); //generer un num de port aleatoire
-
 	while (1) {
 		FD_ZERO(&sockTab);
 		FD_SET(ctrl_desc, &sockTab);
 		FD_SET(data_desc, &sockTab);
-		
 		if(select(ctrl_desc+data_desc+1, &sockTab,NULL, NULL, NULL)==-1){
 			perror("select is ravaged\n");
 			return -1;
 		}
-
 		if(FD_ISSET(data_desc, &sockTab)){
 			int received_size;
 			char buffer[RCVSIZE];
@@ -291,11 +307,10 @@ int main (int argc, char *argv[]) {
 			//printf("Sending %s file to client, it take %d char\n", buffer, received_size);
 			file = fopen(buffer, "r");
 			gettimeofday(&startUpload, NULL);
-			transmit(data_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr);
+			transmit(data_desc, message_size, sequence, RTT, SRTT, mode, cwnd, data, acks, file, addr, buffer, message);
 			gettimeofday(&endUpload, NULL);
 			printf("Time : %ld\n", (endUpload.tv_sec-startUpload.tv_sec)*1000000+(endUpload.tv_usec-startUpload.tv_usec));
 		}
-
 		if(FD_ISSET(ctrl_desc, &sockTab)){
 			printf("Control msg received \n");
 		}

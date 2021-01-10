@@ -1,10 +1,16 @@
-comp : serveur1-RealSoupTime serveur2-RealSoupTime
+comp : serveur0-RealSoupTime serveur1-RealSoupTime serveur2-RealSoupTime
 
 client: client.o
 	gcc -o client client.o
 
 client.o: client.c
 	gcc -o client.o -c client.c
+	
+serveur0-RealSoupTime: serveur0-RealSoupTime.o
+	gcc -o serveur0-RealSoupTime serveur0-RealSoupTime.o
+
+serveur0-RealSoupTime.o: serveur0-RealSoupTime.c
+	gcc -o serveur0-RealSoupTime.o -c serveur0-RealSoupTime.c
 
 serveur1-RealSoupTime: serveur1-RealSoupTime.o
 	gcc -o serveur1-RealSoupTime serveur1-RealSoupTime.o
